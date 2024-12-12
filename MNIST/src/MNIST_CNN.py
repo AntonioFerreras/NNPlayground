@@ -31,31 +31,39 @@ class CNN(nn.Module):
 
         # Pooling layer
         self.pool = nn.AdaptiveAvgPool2d((1, 1))  # Global average pooling
-        
-        # Fully connected layers
-        self.fc1 = nn.Linear(256, 10)  
+
+        # BN 
+        self.bnfc1 = nn.BatchNorm1d(256)
+        self.bnfc2 = nn.BatchNorm1d(128)
 
         # Dropout for regularization
         self.dropout = nn.Dropout(0.5)
 
+        # Fully connected layers
+        self.fc1 = nn.Linear(256, 128)  
+        self.fc2 = nn.Linear(128, 10)  
+
     def forward(self, x):
         # Convolution + BatchNorm + ReLU + Pooling
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn12(self.conv12(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn22(self.conv22(x)))
-        x = F.relu(self.bn23(self.conv23(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.bn31(self.conv31(x)))
-        x = F.relu(self.bn32(self.conv32(x)))
+        x = self.bn1(F.relu(self.conv1(x)))
+        x = self.bn12(F.relu(self.conv12(x)))
+        x = self.bn2(F.relu(self.conv2(x)))
+        x = self.bn22(F.relu(self.conv22(x)))
+        x = self.bn23(F.relu(self.conv23(x)))
+        x = self.bn3(F.relu(self.conv3(x)))
+        x = self.bn31(F.relu(self.conv31(x)))
+        x = self.bn32(F.relu(self.conv32(x)))
+
         x = self.pool(x)                      # Global average pooling
 
         # Flatten the tensor
         x = x.view(x.size(0), -1)       
         
         # Fully connected layers + ReLU + Dropout
-        x = self.dropout(x)                   # Dropout for regularization
+        x = self.bnfc1(x)                     # BatchNorm before FC
         x = F.relu(self.fc1(x))               # Fully connected layer 1
+        x = self.bnfc2(x)
+        x = F.relu(self.fc2(x))               # Fully connected layer 2
         
         return x
 
@@ -66,7 +74,7 @@ def count_parameters(model):
     print(f"Trainable Parameters: {trainable_params}")
 
 # Hyperparameters
-batch_size = 128
+batch_size = 32
 epochs = 70
 learning_rate = 0.001
 
@@ -98,7 +106,7 @@ if __name__ == '__main__':
 
     model = CNN().to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=8, factor=0.5, threshold=0.025)
 
     count_parameters(model)
