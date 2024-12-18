@@ -1,9 +1,10 @@
-# Ignore everything in the MNIST/data directory
 MNIST/data/
 
-# Ignore everything in the MNIST/src/offline_augmented_data directory
 MNIST/src/offline_augmented_data/
 
 MNIST/src/data/
+
+CIFAR10/data/
+CIFAR10/offline_augmented_data/
 
 venv/
