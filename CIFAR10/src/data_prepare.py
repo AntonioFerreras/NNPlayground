@@ -89,9 +89,9 @@ def pca_color_augmentation(image, eigenvectors, eigenvalues, alpha_std=0.2):
 augmentation_transforms = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomAffine(
-        degrees=0,
-        # translate=(0.1, 0.1),  # Random translation
-        scale=(0.8, 1.2)  # Zoom-in only (scale >= 1.0)
+        degrees=15,  # Random rotation within +/- 15 degrees
+        translate=(0.15, 0.15),  # Random translation
+        scale=(0.7, 1.3)  # Zoom-in only (scale >= 1.0)
     )
 ])
 
@@ -120,7 +120,7 @@ for idx in range(len(train_dataset)):
     count += 1
 
     # Create 3 augmented versions (including PCA-based color augmentation)
-    for _ in range(3):
+    for _ in range(5):
         # Apply augmentations
         aug_img = augmentation_transforms(pil_img)
 

@@ -82,23 +82,23 @@ class ImageClassifier(nn.Module):
         super(ImageClassifier, self).__init__()
 
         # Initial 7x7 conv, stride=2, output=64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
 
         # Residual blocks
-        self.block1 = ConvBlock(in_channels=64, out_channels=64, num_layers=2)
-        self.block2 = ConvBlock(in_channels=64, out_channels=128, num_layers=2)
-        self.block3 = ConvBlock(in_channels=128, out_channels=256, num_layers=2)
+        self.block1 = ConvBlock(in_channels=64, out_channels=128, num_layers=4)
+        self.block2 = ConvBlock(in_channels=128, out_channels=256, num_layers=6)
+        self.block3 = ConvBlock(in_channels=256, out_channels=512, num_layers=4)
         # self.block4 = ConvBlock(in_channels=256, out_channels=512, num_layers=2)
 
         # Adaptive global pooling
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
-        self.bnfc = nn.BatchNorm1d(256)
+        self.bnfc = nn.BatchNorm1d(512)
 
         # Fully connected layer for classification
-        self.fc = nn.Linear(256, num_classes)
+        self.fc = nn.Linear(512, num_classes)
 
     def forward(self, x):
         # Initial conv
@@ -135,9 +135,10 @@ def count_parameters(model):
 
 if __name__ == '__main__':
     # Hyperparameters
-    batch_size = 256
-    epochs = 150
-    initial_lr = 0.1
+    batch_size = 400
+    epochs = 30
+    initial_lr = 0.01
+    grad_clip = 0.1
     weight_decay = 0.0001
     momentum = 0.9
 
@@ -161,8 +162,9 @@ if __name__ == '__main__':
 
     model = ImageClassifier(num_classes=10).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=5, factor=0.5, threshold=0.025)
+    optimizer = optim.AdamW(model.parameters(), lr=initial_lr, weight_decay=weight_decay)
+    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=5, factor=0.5, threshold=0.025)
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, steps_per_epoch=len(train_loader), epochs=epochs)
 
     count_parameters(model)
 
@@ -183,12 +185,19 @@ if __name__ == '__main__':
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
+
+            if grad_clip: 
+                nn.utils.clip_grad_value_(model.parameters(), grad_clip)
+
             optimizer.step()
 
             running_loss += loss.item() * images.size(0)
             _, predicted = outputs.max(1)
             total_train += labels.size(0)
             correct_train += predicted.eq(labels).sum().item()
+
+            scheduler.step()
+
 
         avg_loss = running_loss / len(train_loader.dataset)
         train_accuracy = 100.0 * correct_train / total_train
@@ -215,9 +224,10 @@ if __name__ == '__main__':
               f"Train Loss: {avg_loss:.4f}, Train Acc: {train_accuracy:.2f}%, "
               f"Test Acc: {test_accuracy:.2f}%")
 
-        scheduler.step(test_accuracy)
+        # scheduler.step(test_accuracy)
+
         
         # Save model every 10 epochs (overwrite)
         if (epoch + 1) % 10 == 0:
-            torch.save(model.state_dict(), "model_checkpoint.pth")
+            torch.save(model.state_dict(), "model_parameters.pth")
             print(f"Model checkpoint saved at epoch {epoch+1}")
