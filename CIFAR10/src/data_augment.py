@@ -85,7 +85,7 @@ class CIFAR10DataAugmentation:
             transforms.RandomAffine(
                 degrees=15,
                 translate=(0.15, 0.15),
-                scale=(0.7, 1.3)
+                scale=(0.85, 1.3)
             ),
             transforms.Lambda(lambda img: self.pca_augment(img)),  # PCA Color Augmentation
             transforms.ToTensor(),  # Convert to tensor

@@ -50,8 +50,9 @@ if __name__ == '__main__':
     # Hyperparameters
     batch_size = 400
     epochs = 40
-    initial_lr = 0.01
-    grad_clip = 6.0
+    initial_lr = 0.01 # doesnt do anything with 1 cyclle policy
+    max_lr = 0.01
+    grad_clip = 2.0
     weight_decay = 0.0001
 
     # Initialize data augmentation
@@ -70,8 +71,7 @@ if __name__ == '__main__':
     model = ImageClassifier(num_classes=10).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=initial_lr, weight_decay=weight_decay)
-    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=5, factor=0.5, threshold=0.025)
-    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, steps_per_epoch=len(train_loader), epochs=epochs)
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=max_lr, steps_per_epoch=len(train_loader), epochs=epochs)
 
     count_parameters(model)
     first_epoch = True
