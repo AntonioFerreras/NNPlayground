@@ -50,9 +50,9 @@ if __name__ == '__main__':
     # Hyperparameters
     batch_size = 400
     epochs = 40
-    initial_lr = 0.01 # doesnt do anything with 1 cyclle policy
+    initial_lr = 0.01 # doesnt do anything with 1 cycle policy
     max_lr = 0.01
-    grad_clip = 2.0
+    grad_clip = 0.1
     weight_decay = 0.0001
 
     # Initialize data augmentation
@@ -103,7 +103,7 @@ if __name__ == '__main__':
             loss.backward()
 
             if grad_clip: 
-                nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+                nn.utils.clip_grad_value_(model.parameters(), grad_clip)
 
             optimizer.step()
 
