@@ -5,12 +5,13 @@ import torch.optim as optim
 from model import ImageClassifier 
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
-from data_augment import train_transforms, test_transforms
 from data_augment import CIFAR10DataAugmentation
 from torchvision.utils import save_image
 import time
+from torch.profiler import profile, record_function, ProfilerActivity
 
-
+from torch.utils.tensorboard import SummaryWriter
+import argparse
 
 def count_parameters(model):
     total_params = sum(p.numel() for p in model.parameters())
@@ -19,41 +20,35 @@ def count_parameters(model):
     print(f"Trainable Parameters: {trainable_params}")
 
 def unnormalize(tensor, mean, std):
-    """
-    Reverse the normalization process.
-    Args:
-        tensor: Normalized tensor.
-        mean: Tuple of means for each channel.
-        std: Tuple of standard deviations for each channel.
-    Returns:
-        Unnormalized tensor.
-    """
     for t, m, s in zip(tensor, mean, std):
         t.mul_(s).add_(m)  # Reverse the normalization
     return tensor
 
 def unnormalize_batch(batch, mean, std):
-    """
-    Reverse the normalization process for a batch of images.
-    Args:
-        batch: Normalized batch of images.
-        mean: Tuple of means for each channel.
-        std: Tuple of standard deviations for each channel.
-    Returns:
-        Unnormalized batch of images.
-    """
     for i in range(batch.size(0)):
         batch[i] = unnormalize(batch[i], mean, std)
     return batch
 
+class DummyContextManager:
+    def __enter__(self):
+        pass
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
 if __name__ == '__main__':
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Train a model with optional profiling and customizable epochs.")
+    parser.add_argument("--profile", action="store_true", help="Enable PyTorch Profiler.")
+    parser.add_argument("--epochs", type=int, default=40, help="Number of epochs to train the model.")
+    args = parser.parse_args()
+
     # Hyperparameters
     batch_size = 400
-    epochs = 40
-    initial_lr = 0.01 # doesnt do anything with 1 cycle policy
+    initial_lr = 0.01
     max_lr = 0.01
     grad_clip = 0.1
     weight_decay = 0.0001
+    epochs = args.epochs
 
     # Initialize data augmentation
     data_augmentation = CIFAR10DataAugmentation()
@@ -77,6 +72,9 @@ if __name__ == '__main__':
     first_epoch = True
     total_time = 0.0
 
+    # TensorBoard Writer
+    writer = SummaryWriter(log_dir="./logs")
+
     for epoch in range(epochs):
         start_time = time.time()
         # Training phase
@@ -85,7 +83,21 @@ if __name__ == '__main__':
         correct_train = 0
         total_train = 0
 
+        if args.profile:
+            # Profiler Setup
+            prof = profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./logs'),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=False
+            )
+            prof.start()
+
         for batch_idx, (images, labels) in enumerate(train_loader):
+            if args.profile:
+                prof.step()
+
             images, labels = images.to(device), labels.to(device)
 
             # Save first 24 images of the first batch of the first epoch and apply unnormalization
@@ -95,18 +107,22 @@ if __name__ == '__main__':
                 first_epoch = False
 
             # Forward pass
-            outputs = model(images)
-            loss = criterion(outputs, labels)
+            with (record_function("model forward") if args.profile else DummyContextManager()):
+                outputs = model(images)
+            with (record_function("loss computation") if args.profile else DummyContextManager()):
+                loss = criterion(outputs, labels)
 
             # Backward pass
             optimizer.zero_grad()
-            loss.backward()
+            with (record_function("backward pass") if args.profile else DummyContextManager()):
+                loss.backward()
 
             if grad_clip: 
                 nn.utils.clip_grad_value_(model.parameters(), grad_clip)
 
-            optimizer.step()
-
+            with (record_function("optimizer step") if args.profile else DummyContextManager()):
+                optimizer.step()
+                
             running_loss += loss.item() * images.size(0)
             _, predicted = outputs.max(1)
             total_train += labels.size(0)
@@ -114,12 +130,15 @@ if __name__ == '__main__':
 
             scheduler.step()
 
-
+        if args.profile:
+            prof.stop()
+    
         avg_loss = running_loss / len(train_loader.dataset)
         train_accuracy = 100.0 * correct_train / total_train
-        train_error = 1.0 - (train_accuracy / 100.0)
 
-        # Step the scheduler with training error
+        # Log training metrics
+        writer.add_scalar("Loss/Train", avg_loss, epoch)
+        writer.add_scalar("Accuracy/Train", train_accuracy, epoch)
 
         # Validation phase (test set)
         model.eval()
@@ -135,6 +154,9 @@ if __name__ == '__main__':
 
         test_accuracy = 100.0 * correct_test / total_test
 
+        # Log validation metrics
+        writer.add_scalar("Accuracy/Test", test_accuracy, epoch)
+
         epoch_time = time.time() - start_time
         total_time += epoch_time
         print(f"Epoch {epoch+1}/{epochs}, "
@@ -143,7 +165,7 @@ if __name__ == '__main__':
               f"Test Acc: {test_accuracy:.2f}%, "
               f"Epoch Time: {epoch_time:.2f}s")
 
-        # Save model every 10 epochs (overwrite)
+        # Save model every 10 epochs
         if (epoch + 1) % 10 == 0:
             torch.save(model.state_dict(), "model_parameters.pth")
             print(f"Model checkpoint saved at epoch {epoch+1}")
@@ -151,3 +173,4 @@ if __name__ == '__main__':
     avg_epoch_time = total_time / epochs
     print(f"Average Epoch Time: {avg_epoch_time:.2f}s")
     print(f"Total Training Time: {total_time:.2f}s")
+    writer.close()
