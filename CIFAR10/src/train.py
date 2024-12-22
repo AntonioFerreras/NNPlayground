@@ -107,10 +107,11 @@ if __name__ == '__main__':
                 first_epoch = False
 
             # Forward pass
-            with (record_function("model forward") if do_profile else DummyContextManager()):
-                outputs = model(images)
-            with (record_function("loss computation") if do_profile else DummyContextManager()):
-                loss = criterion(outputs, labels)
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                with (record_function("model forward") if do_profile else DummyContextManager()):
+                    outputs = model(images)
+                with (record_function("loss computation") if do_profile else DummyContextManager()):
+                    loss = criterion(outputs, labels)
 
             # Backward pass
             optimizer.zero_grad()
