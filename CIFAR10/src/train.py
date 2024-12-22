@@ -79,11 +79,13 @@ if __name__ == '__main__':
         start_time = time.time()
         # Training phase
         model.train()
-        running_loss = 0.0
-        correct_train = 0
-        total_train = 0
+        running_loss = torch.tensor(0.0, device=device)
+        correct_train = torch.tensor(0, device=device, dtype=torch.int64)
+        total_train = torch.tensor(0, device=device, dtype=torch.int64)
 
-        if args.profile:
+        do_profile = args.profile and epoch == 1
+        prof = None
+        if do_profile:
             # Profiler Setup
             prof = profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
@@ -95,10 +97,8 @@ if __name__ == '__main__':
             prof.start()
 
         for batch_idx, (images, labels) in enumerate(train_loader):
-            if args.profile:
-                prof.step()
-
-            images, labels = images.to(device), labels.to(device)
+            with (record_function("data transfer") if do_profile else DummyContextManager()):
+                images, labels = images.to(device), labels.to(device)
 
             # Save first 24 images of the first batch of the first epoch and apply unnormalization
             if first_epoch and batch_idx == 0:
@@ -107,34 +107,47 @@ if __name__ == '__main__':
                 first_epoch = False
 
             # Forward pass
-            with (record_function("model forward") if args.profile else DummyContextManager()):
+            with (record_function("model forward") if do_profile else DummyContextManager()):
                 outputs = model(images)
-            with (record_function("loss computation") if args.profile else DummyContextManager()):
+            with (record_function("loss computation") if do_profile else DummyContextManager()):
                 loss = criterion(outputs, labels)
 
             # Backward pass
             optimizer.zero_grad()
-            with (record_function("backward pass") if args.profile else DummyContextManager()):
+            with (record_function("backward pass") if do_profile else DummyContextManager()):
                 loss.backward()
 
             if grad_clip: 
                 nn.utils.clip_grad_value_(model.parameters(), grad_clip)
 
-            with (record_function("optimizer step") if args.profile else DummyContextManager()):
+            with (record_function("optimizer step") if do_profile else DummyContextManager()):
                 optimizer.step()
                 
-            running_loss += loss.item() * images.size(0)
-            _, predicted = outputs.max(1)
-            total_train += labels.size(0)
-            correct_train += predicted.eq(labels).sum().item()
+            with (record_function("metrics calculation") if do_profile else DummyContextManager()):
+                running_loss += loss.detach() * images.size(0)
+                _, predicted = outputs.max(1)
+                total_train += labels.size(0)
+                correct_train += predicted.eq(labels).sum().detach()
 
-            scheduler.step()
+            with (record_function("scheduler step") if do_profile else DummyContextManager()):
+                scheduler.step()
 
-        if args.profile:
+            if do_profile:
+                prof.step()
+
+
+        if do_profile:
             prof.stop()
-    
-        avg_loss = running_loss / len(train_loader.dataset)
-        train_accuracy = 100.0 * correct_train / total_train
+
+        # Transfer metrics to CPU only once
+        running_loss_cpu = running_loss.item()
+        correct_train_cpu = correct_train.item()
+        total_train_cpu = total_train.item()
+
+        # Compute final metrics
+        avg_loss = running_loss_cpu / len(train_loader.dataset)
+        train_accuracy = 100.0 * correct_train_cpu / total_train_cpu
+
 
         # Log training metrics
         writer.add_scalar("Loss/Train", avg_loss, epoch)
