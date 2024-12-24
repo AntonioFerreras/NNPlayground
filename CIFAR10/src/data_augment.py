@@ -3,6 +3,10 @@ import torch
 from torchvision import transforms, datasets
 from PIL import Image
 
+
+torch.set_float32_matmul_precision('high')
+
+
 class PCAColorAugmentation:
     def __init__(self, eigenvectors, eigenvalues, alpha_std=0.2):
         self.eigenvectors = eigenvectors
@@ -36,8 +40,9 @@ class PCAColorAugmentation:
         return Image.fromarray(img_aug)
 
 class CIFAR10DataAugmentation:
-    CIFAR10_MEAN = (0.4914, 0.4822, 0.4465)
-    CIFAR10_STD = (0.2470, 0.2435, 0.2616)
+    MEAN = 0.475
+    STD = 0.25
+
 
     def __init__(self, data_path="../data"):
         """
@@ -89,13 +94,13 @@ class CIFAR10DataAugmentation:
             ),
             transforms.Lambda(lambda img: self.pca_augment(img)),  # PCA Color Augmentation
             transforms.ToTensor(),  # Convert to tensor
-            transforms.Normalize(mean=self.CIFAR10_MEAN, std=self.CIFAR10_STD)  # Normalize
+            transforms.Normalize(mean=(self.MEAN, self.MEAN, self.MEAN), std=(self.STD, self.STD, self.STD))  # Dont normalize here to avoid 32-bit conversion
         ])
 
     def get_test_transforms(self):
         return transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=self.CIFAR10_MEAN, std=self.CIFAR10_STD)
+            transforms.Normalize(mean=(self.MEAN, self.MEAN, self.MEAN), std=(self.STD, self.STD, self.STD))
         ])
 
 # Usage

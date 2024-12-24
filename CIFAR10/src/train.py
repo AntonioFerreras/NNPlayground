@@ -13,6 +13,8 @@ from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 
+# torch.set_float32_matmul_precision('high')
+
 def count_parameters(model):
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -40,10 +42,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a model with optional profiling and customizable epochs.")
     parser.add_argument("--profile", action="store_true", help="Enable PyTorch Profiler.")
     parser.add_argument("--epochs", type=int, default=40, help="Number of epochs to train the model.")
+    parser.add_argument("--compile", action="store_true", help="Enable PyTorch compilation for the model.")
     args = parser.parse_args()
 
     # Hyperparameters
-    batch_size = 400
+    batch_size = 500
     initial_lr = 0.01
     max_lr = 0.01
     grad_clip = 0.1
@@ -57,13 +60,19 @@ if __name__ == '__main__':
     train_dataset = datasets.CIFAR10(root="../data", train=True, transform=data_augmentation.get_train_transforms(), download=True)
     test_dataset = datasets.CIFAR10(root="../data", train=False, transform=data_augmentation.get_test_transforms(), download=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2, persistent_workers=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, prefetch_factor=2, persistent_workers=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"CUDA is available: {torch.cuda.is_available()}")
 
     model = ImageClassifier(num_classes=10).to(device)
+    if args.compile:
+        model = torch.compile(model)
+
+
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=initial_lr, weight_decay=weight_decay)
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=max_lr, steps_per_epoch=len(train_loader), epochs=epochs)
@@ -73,7 +82,9 @@ if __name__ == '__main__':
     total_time = 0.0
 
     # TensorBoard Writer
-    writer = SummaryWriter(log_dir="./logs")
+    writer = None
+    if args.profile:
+        writer = SummaryWriter(log_dir="./logs")
 
     for epoch in range(epochs):
         start_time = time.time()
@@ -98,13 +109,19 @@ if __name__ == '__main__':
 
         for batch_idx, (images, labels) in enumerate(train_loader):
             with (record_function("data transfer") if do_profile else DummyContextManager()):
-                images, labels = images.to(device), labels.to(device)
+                images, labels = images.to(device=device, non_blocking=True), labels.to(device=device, non_blocking=True)
+
+                # Do normalization in training loop to reduce CPU-GPU transfer time
+                #    - This is not necessary if the normalization is done in the data augmentation transforms
+                #    - Normalizing in data aug transforms converts to FP32, which is slower to transfer than the
+                #      original 8 bit images
+                # images = (images.to(torch.float32) / 255.0 - data_augmentation.MEAN) / data_augmentation.STD
 
             # Save first 24 images of the first batch of the first epoch and apply unnormalization
-            if first_epoch and batch_idx == 0:
-                unnormalized_images = unnormalize_batch(images[:24].cpu(), mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))
-                save_image(unnormalized_images, 'first_24_images.png', nrow=6)
-                first_epoch = False
+            # if first_epoch and batch_idx == 0:
+            #     unnormalized_images = unnormalize_batch(images[:24].cpu(), mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))
+            #     save_image(unnormalized_images, 'first_24_images.png', nrow=6)
+            #     first_epoch = False
 
             # Forward pass
             with torch.autocast(device_type='cuda', dtype=torch.float16):
@@ -151,8 +168,9 @@ if __name__ == '__main__':
 
 
         # Log training metrics
-        writer.add_scalar("Loss/Train", avg_loss, epoch)
-        writer.add_scalar("Accuracy/Train", train_accuracy, epoch)
+        if writer:
+            writer.add_scalar("Loss/Train", avg_loss, epoch)
+            writer.add_scalar("Accuracy/Train", train_accuracy, epoch)
 
         # Validation phase (test set)
         model.eval()
@@ -161,6 +179,9 @@ if __name__ == '__main__':
         with torch.no_grad():
             for images, labels in test_loader:
                 images, labels = images.to(device), labels.to(device)
+
+                # images = (images.to(torch.float32) / 255.0 - data_augmentation.MEAN) / data_augmentation.STD
+
                 outputs = model(images)
                 _, predicted = outputs.max(1)
                 total_test += labels.size(0)
@@ -169,7 +190,8 @@ if __name__ == '__main__':
         test_accuracy = 100.0 * correct_test / total_test
 
         # Log validation metrics
-        writer.add_scalar("Accuracy/Test", test_accuracy, epoch)
+        if writer:
+            writer.add_scalar("Accuracy/Test", test_accuracy, epoch)
 
         epoch_time = time.time() - start_time
         total_time += epoch_time
@@ -187,4 +209,8 @@ if __name__ == '__main__':
     avg_epoch_time = total_time / epochs
     print(f"Average Epoch Time: {avg_epoch_time:.2f}s")
     print(f"Total Training Time: {total_time:.2f}s")
-    writer.close()
+    if writer:
+        writer.close()
+    
+    del train_loader
+    del test_loader
