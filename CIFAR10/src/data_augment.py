@@ -4,7 +4,6 @@ from torchvision import transforms, datasets
 from PIL import Image
 
 
-torch.set_float32_matmul_precision('high')
 
 
 class PCAColorAugmentation:

@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
 
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.2)
     optimizer = optim.AdamW(model.parameters(), lr=initial_lr, weight_decay=weight_decay)
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=max_lr, steps_per_epoch=len(train_loader), epochs=epochs)
 
@@ -84,9 +84,9 @@ if __name__ == '__main__':
     # TensorBoard Writer
     writer = None
     if args.profile:
-        writer = SummaryWriter(log_dir="./logs")
+        writer = SummaryWriter(log_dir="./logs3")
 
-    scaler = torch.cuda.amp.GradScaler()
+    # scaler = torch.amp.GradScaler()
 
     for epoch in range(epochs):
         start_time = time.time()
@@ -101,7 +101,7 @@ if __name__ == '__main__':
             # Profiler setup
             prof = profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./logs'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./logs3'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=False
@@ -110,30 +110,44 @@ if __name__ == '__main__':
 
         for batch_idx, (images, labels) in enumerate(train_loader):
             with (record_function("data transfer") if do_profile else DummyContextManager()):
-                images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+                images, labels = images.to(device, dtype=torch.bfloat16, non_blocking=True), labels.to(device, non_blocking=True)
 
             optimizer.zero_grad()
 
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                with (record_function("model forward") if do_profile else DummyContextManager()):
-                    outputs = model(images)
+            # with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            #     with (record_function("model forward") if do_profile else DummyContextManager()):
+            #         outputs = model(images)
+            #     with (record_function("loss computation") if do_profile else DummyContextManager()):
+            #         loss = criterion(outputs, labels)
 
-                with (record_function("loss computation") if do_profile else DummyContextManager()):
-                    loss = criterion(outputs, labels)
+            outputs = model(images)
+            loss = criterion(outputs.to(dtype=torch.float32), labels)
 
             with (record_function("backward pass") if do_profile else DummyContextManager()):
-                # Backward pass with gradient scaling
-                scaler.scale(loss).backward()
+                # scaler.scale(loss).backward()
+                loss.to(dtype=torch.bfloat16).backward()
+
+            # scaler.unscale_(optimizer)
+
+            if writer:
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        writer.add_scalar(f"Gradients/{name}_norm", param.grad.norm().item(), epoch * len(train_loader) + batch_idx)
+                        if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
+                            print(f"NaN or INF detected in gradients of {name} at batch {batch_idx} of epoch {epoch}")
+                            break
+
 
             if grad_clip:
                 with (record_function("gradient clipping") if do_profile else DummyContextManager()):
-                    scaler.unscale_(optimizer)  # Unscale gradients before clipping
+                    
                     nn.utils.clip_grad_value_(model.parameters(), grad_clip)
 
             with (record_function("optimizer step") if do_profile else DummyContextManager()):
-                scaler.step(optimizer)
+                # scaler.step(optimizer)
+                optimizer.step()
 
-            scaler.update()
+            # scaler.update()
                 
             with (record_function("metrics calculation") if do_profile else DummyContextManager()):
                 running_loss += loss.detach() * images.size(0)
@@ -168,8 +182,8 @@ if __name__ == '__main__':
 
         # Validation phase (test set)
         model.eval()
-        correct_test = 0
-        total_test = 0
+        correct_test = torch.tensor(0, device=device, dtype=torch.int64)
+        total_test = torch.tensor(0, device=device, dtype=torch.int64)
         with torch.no_grad():
             for images, labels in test_loader:
                 images, labels = images.to(device), labels.to(device)
@@ -179,9 +193,9 @@ if __name__ == '__main__':
                 outputs = model(images)
                 _, predicted = outputs.max(1)
                 total_test += labels.size(0)
-                correct_test += predicted.eq(labels).sum().item()
+                correct_test += predicted.eq(labels).sum().detach()
 
-        test_accuracy = 100.0 * correct_test / total_test
+        test_accuracy = 100.0 * correct_test.item() / total_test.item()
         # test_accuracy = 0.0
         # Log validation metrics
         if writer:

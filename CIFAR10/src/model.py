@@ -2,6 +2,42 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# low precision variants of modules, keeps weights and grad in FP32, but performs forward pass in FP16
+class LinearLP(torch.nn.Linear):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        compute_type = input.dtype
+        w = self.weight.to(compute_type)
+        b = self.bias.to(compute_type) if self.bias is not None else None
+        return torch.nn.functional.linear(input, w, b)
+
+class Conv2dLP(torch.nn.Conv2d):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        compute_type = input.dtype
+        w = self.weight.to(compute_type)
+        b = self.bias.to(compute_type) if self.bias is not None else None
+        return torch.nn.functional.conv2d(input, w, b, self.stride,
+                                           self.padding, self.dilation, self.groups)
+
+class BatchNorm2dLP(torch.nn.BatchNorm2d):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        compute_type = input.dtype
+        w = self.weight.to(compute_type)
+        b = self.bias.to(compute_type)
+        m = self.running_mean.to(compute_type)
+        v = self.running_var.to(compute_type)
+        return torch.nn.functional.batch_norm(input, m, v, w, b, self.training,
+                                              self.momentum, self.eps)
+
+class BatchNorm1dLP(torch.nn.BatchNorm1d):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        compute_type = input.dtype
+        w = self.weight.to(compute_type)
+        b = self.bias.to(compute_type)
+        m = self.running_mean.to(compute_type)
+        v = self.running_var.to(compute_type)
+        return torch.nn.functional.batch_norm(input, m, v, w, b, self.training,
+                                              self.momentum, self.eps)
+
 class ResidualPair(nn.Module):
     """
     A pair of 3x3 convolutional layers with BN and ReLU, forming a residual unit.
@@ -13,21 +49,21 @@ class ResidualPair(nn.Module):
     """
     def __init__(self, in_channels, out_channels, stride=1):
         super(ResidualPair, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, 
+        self.conv1 = Conv2dLP(in_channels, out_channels, kernel_size=3, stride=stride, 
                                padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn1 = BatchNorm2dLP(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, 
+        self.conv2 = Conv2dLP(out_channels, out_channels, kernel_size=3, stride=1, 
                                padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.bn2 = BatchNorm2dLP(out_channels)
 
         # If there's a dimension change in channels or spatial size, use a projection
         self.projection = None
         if (in_channels != out_channels) or (stride != 1):
             self.projection = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels)
+                Conv2dLP(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                BatchNorm2dLP(out_channels)
             )
 
     def forward(self, x):
@@ -79,8 +115,8 @@ class ImageClassifier(nn.Module):
         super(ImageClassifier, self).__init__()
 
         # Initial 7x7 conv, stride=2, output=64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.conv1 = Conv2dLP(3, 64, kernel_size=3, stride=1, padding=1)
+        self.bn1 = BatchNorm2dLP(64)
         self.relu = nn.ReLU(inplace=True)
 
         # Residual blocks
@@ -92,10 +128,10 @@ class ImageClassifier(nn.Module):
         # Adaptive global pooling
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
-        self.bnfc = nn.BatchNorm1d(512)
+        self.bnfc = BatchNorm1dLP(512)
 
         # Fully connected layer for classification
-        self.fc = nn.Linear(512, num_classes)
+        self.fc = LinearLP(512, num_classes)
 
     def forward(self, x):
         # Initial conv
