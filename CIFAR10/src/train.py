@@ -110,22 +110,23 @@ if __name__ == '__main__':
 
         for batch_idx, (images, labels) in enumerate(train_loader):
             with (record_function("data transfer") if do_profile else DummyContextManager()):
-                images, labels = images.to(device, dtype=torch.bfloat16, non_blocking=True), labels.to(device, non_blocking=True)
+                images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
 
             optimizer.zero_grad()
 
-            # with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            #     with (record_function("model forward") if do_profile else DummyContextManager()):
-            #         outputs = model(images)
-            #     with (record_function("loss computation") if do_profile else DummyContextManager()):
-            #         loss = criterion(outputs, labels)
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                with (record_function("model forward") if do_profile else DummyContextManager()):
+                    outputs = model(images)
+                with (record_function("loss computation") if do_profile else DummyContextManager()):
+                    loss = criterion(outputs, labels)
 
-            outputs = model(images)
-            loss = criterion(outputs.to(dtype=torch.float32), labels)
+            # outputs = model(images)
+            # loss = criterion(outputs.to(dtype=torch.float32), labels)
 
             with (record_function("backward pass") if do_profile else DummyContextManager()):
                 # scaler.scale(loss).backward()
-                loss.to(dtype=torch.bfloat16).backward()
+                # loss.to(dtype=torch.bfloat16).backward()
+                loss.backward()
 
             # scaler.unscale_(optimizer)
 
@@ -185,10 +186,8 @@ if __name__ == '__main__':
         correct_test = torch.tensor(0, device=device, dtype=torch.int64)
         total_test = torch.tensor(0, device=device, dtype=torch.int64)
         with torch.no_grad():
-            for images, labels in test_loader:
+            for images, labels in test_loader: 
                 images, labels = images.to(device), labels.to(device)
-
-                # images = (images.to(torch.float32) / 255.0 - data_augmentation.MEAN) / data_augmentation.STD
 
                 outputs = model(images)
                 _, predicted = outputs.max(1)
