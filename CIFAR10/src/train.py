@@ -61,8 +61,8 @@ if __name__ == '__main__':
     test_dataset = datasets.CIFAR10(root="../data", train=False, transform=data_augmentation.get_test_transforms(), download=True)
 
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, prefetch_factor=2)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2, persistent_workers=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, prefetch_factor=2, persistent_workers=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"CUDA is available: {torch.cuda.is_available()}")

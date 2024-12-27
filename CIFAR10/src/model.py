@@ -152,4 +152,5 @@ class ImageClassifier(nn.Module):
         # FC
         x = self.bnfc(x)
         x = self.fc(x)  # [N,10]
-        return F.relu(x)
+        x = self.relu(x)
+        return x

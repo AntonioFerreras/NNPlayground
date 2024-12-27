@@ -1,14 +1,13 @@
 MNIST/data/
-
 MNIST/src/offline_augmented_data/
-
 MNIST/src/data/
 
 CIFAR10/data/
-CIFAR10/offline_augmented_data/
-
 CIFAR10/src/logs/
 
-CIFAR10/src/logs/
+ImageNet/data/
+ImageNet/src/logs/
+
+*.pyc
 
 venv/
