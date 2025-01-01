@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
     model = ImageClassifier(num_classes=1000).to(device)
     if args.compile:
-        model = torch.compile(model)
+        model = torch.compile(model=model, mode="max-autotune")
 
 
 

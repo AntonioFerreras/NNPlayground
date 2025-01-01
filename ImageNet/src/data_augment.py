@@ -107,7 +107,7 @@ class ImageNetDataAugmentation:
                 degrees=15,
                 scale=(0.85, 1.3)
             ),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1), # Might be causing slow down?
             transforms.Lambda(lambda img: self.pca_augment(img)) if self.DO_PCA else transforms.Lambda(lambda img: img),  # PCA Color Augmentation
             transforms.ToTensor(),  # Convert to tensor
             transforms.Normalize(mean=self.MEAN, std=self.STD)  # Normalize
