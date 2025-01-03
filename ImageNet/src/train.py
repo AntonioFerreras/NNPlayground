@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, prefetch_factor=2, persistent_workers=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=2, persistent_workers=True)
+    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=2, persistent_workers=True)
 
     print(f"Number of training images: {len(train_dataset)}")
     print(f"Number of testing images: {len(test_dataset)}")
@@ -192,10 +192,13 @@ if __name__ == '__main__':
         correct_test = torch.tensor(0, device=device, dtype=torch.int64)
         total_test = torch.tensor(0, device=device, dtype=torch.int64)
         with torch.no_grad():
-            for images, labels in test_loader: 
+            for images, labels in test_loader:
                 images, labels = images.to(device), labels.to(device)
-
+                # images shape is (batch_size, 10, 3, 224, 224)
+                N, ncrops, C, H, W = images.size()
+                images = images.view(N * ncrops, C, H, W)
                 outputs = model(images)
+                outputs = outputs.view(N, ncrops, -1).mean(1)
                 _, predicted = outputs.max(1)
                 total_test += labels.size(0)
                 correct_test += predicted.eq(labels).sum().detach()

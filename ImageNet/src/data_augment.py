@@ -116,10 +116,10 @@ class ImageNetDataAugmentation:
 
     def get_test_transforms(self):
         return transforms.Compose([
-            transforms.Resize(256),  # Resize the shorter side to 256
-            transforms.CenterCrop(224),  # Take a center crop of size 224x224
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.MEAN, std=self.STD)
+            transforms.Resize(256),
+            transforms.TenCrop(224),
+            transforms.Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+            transforms.Lambda(lambda crops: torch.stack([transforms.Normalize(self.MEAN, self.STD)(crop) for crop in crops]))
         ])
 
 
