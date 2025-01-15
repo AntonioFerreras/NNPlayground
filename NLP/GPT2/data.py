@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import tiktoken
 
 class ShakespeareDataset(Dataset):
     def __init__(self, text, seq_length):
@@ -11,10 +12,8 @@ class ShakespeareDataset(Dataset):
         """
         self.seq_length = seq_length
         self.text = text
-        self.chars = sorted(set(text))  # Unique characters
-        self.char_to_idx = {ch: i for i, ch in enumerate(self.chars)}
-        self.idx_to_char = {i: ch for i, ch in enumerate(self.chars)}
-        self.encoded_text = [self.char_to_idx[ch] for ch in text]  # Convert text to integers
+        enc = tiktoken.get_encoding('gpt2')
+        self.encoded_text = enc.encode(text)  # Convert text to integers
 
     def __len__(self):
         """Returns the number of sequences available."""
@@ -25,6 +24,10 @@ class ShakespeareDataset(Dataset):
         input_seq = self.encoded_text[idx:idx + self.seq_length]
         target_seq = self.encoded_text[idx + 1:idx + self.seq_length + 1]
         return torch.tensor(input_seq, dtype=torch.long), torch.tensor(target_seq, dtype=torch.long)
+
+    def num_tokens(self):
+        """Returns the number of tokens in the dataset."""
+        return len(self.encoded_text)
 
 def get_shakespeare_dataloader(batch_size, seq_length, text, shuffle=True):
     """
@@ -40,5 +43,7 @@ def get_shakespeare_dataloader(batch_size, seq_length, text, shuffle=True):
         DataLoader: PyTorch DataLoader instance for the dataset.
     """
     dataset = ShakespeareDataset(text, seq_length)
+    num_tokens = dataset.num_tokens()
+    print(f"Number of tokens in the dataset: {num_tokens}")
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
-    return dataloader
+    return dataloader, num_tokens
