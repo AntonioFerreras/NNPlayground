@@ -5,8 +5,11 @@ import torch.nn.functional as F
 import model
 from data import get_shakespeare_dataloader
 import time
+import argparse
 
-
+parser = argparse.ArgumentParser()
+parser.add_argument("--weights_path", default=None, help="Path to model weights file")
+args = parser.parse_args()
 
 torch.manual_seed(42)
 if torch.cuda.is_available():
@@ -18,12 +21,12 @@ device = torch.device(device_name)
 print("using device: %s" % device)
 
 # load dataset and dataloader
-batch_size = 2 ** 18 # 524288 # in tokens
+batch_size = 524288 # in tokens
 mini_batch_size = 16 # in batch dimension
 seq_length = 1024 # in tokens
 assert batch_size % (mini_batch_size * seq_length) == 0, "batch size must be divisible by mini batch size"
 grad_accum_steps = batch_size // (mini_batch_size * seq_length)
-shakespeare_text = open('tiny_shakespeare.txt').read()
+shakespeare_text = open('data/rap/songs.txt').read()
 dataloader, num_tokens = get_shakespeare_dataloader(mini_batch_size, seq_length, shakespeare_text)
 num_batches_in_epoch = num_tokens // batch_size
 print("num batches in epoch: %d" % num_batches_in_epoch)
@@ -32,6 +35,13 @@ torch.set_float32_matmul_precision('high')
 
 # load the model
 llm = model.GPT(model.GPTConfig(vocab_size=50304))
+if args.weights_path:
+    # Load the state_dict
+    checkpoint = torch.load(args.weights_path, map_location=device)
+    # Remove the "_orig_mod." prefix from keys
+    new_state_dict = {k.replace("_orig_mod.", ""): v for k, v in checkpoint.items()}
+    # Load the updated state_dict into the model
+    llm.load_state_dict(new_state_dict)
 llm.to(device)
 llm = torch.compile(llm)
 
@@ -90,10 +100,10 @@ for batch_idx, (input_seq, target_seq) in enumerate(dataloader):
     print("batch %d, loss %.3f, lr %.2e, grad_norm %.4f, time %.2f ms, tok/sec %.2f" % (batch_idx, loss_sum.item(), lr, grad_norm, dt, tokens_per_sec))
     
     # print some generated text
-    if step % 10 == 0:
-        num_return_sequences = 5
+    if step % 100 == 0:
+        num_return_sequences = 3
         max_length = 30
-        tokens = enc.encode("O Romeo, Romeo! ")
+        tokens = enc.encode("Yo")
         tokens = torch.tensor(tokens, dtype=torch.long)
         tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1).to(device)
         while tokens.size(1) < max_length:
@@ -108,8 +118,8 @@ for batch_idx, (input_seq, target_seq) in enumerate(dataloader):
         for i in range(num_return_sequences):
             out_tokens = tokens[i, :max_length].tolist()
             print('>', enc.decode(out_tokens))
-        if step % 50 == 0:
-            torch.save(llm.state_dict(), f"weights/model_step_{step}.pt")
+        if step % 500 == 0:
+            torch.save(llm.state_dict(), f"weights/rap/model_step_{step}.pt")
 
     step += 1
 

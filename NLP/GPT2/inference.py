@@ -12,6 +12,13 @@ print("using device: %s" % device)
 
 # llm = model.GPT.from_pretrained('gpt2')
 llm = model.GPT(model.GPTConfig())
+# Load the state_dict
+checkpoint = torch.load("weights/rap/model_step_1000.pt", map_location=device)
+# Remove the "_orig_mod." prefix from keys
+new_state_dict = {k.replace("_orig_mod.", ""): v for k, v in checkpoint.items()}
+# Load the updated state_dict into the model
+llm.load_state_dict(new_state_dict)
+
 llm.eval()
 llm.to(device)
 
@@ -27,7 +34,7 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(42)
 while x.size(1) < max_length:
     with torch.no_grad():
-        logits = llm(x)
+        logits, _ = llm(x)
         # take the logits at the last position
         next_token_logits = logits[:, -1, :]  # (B, vocab_size)
         # convert to probabilities
